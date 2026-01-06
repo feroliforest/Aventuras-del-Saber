@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Aventura del Saber: Desafío Cactus</title>
+    <!-- Enlace al Manifiesto PWA -->
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Roboto:wght@400;700&display=swap');
+
+        body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: 'Roboto', sans-serif; touch-action: none; }
+        #game-container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; background: #000; }
+        canvas { box-shadow: 0 0 40px rgba(0,0,0,0.8); max-width: 100%; max-height: 100%; border: 4px solid #334155; border-radius: 8px; }
+
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: rgba(15, 23, 42, 0.9); z-index: 10; color: white; text-align: center;
+            padding: 20px; box-sizing: border-box; backdrop-filter: blur(10px);
+        }
+
+        .hidden { display: none !important; }
+        h1 { font-family: 'Fredoka One', cursive; font-size: 3rem; color: #FFD700; text-shadow: 4px 4px 0px #d35400; margin-bottom: 20px; }
+
+        .btn {
+            background: linear-gradient(to bottom, #3498db, #2980b9); border: none; border-radius: 20px;
+            padding: 15px 35px; color: white; font-size: 1.2rem; font-weight: bold; cursor: pointer;
+            margin: 10px; transition: all 0.2s; box-shadow: 0 6px 0 #1c5980; font-family: 'Fredoka One', cursive;
+        }
+        .btn:hover:not(:disabled) { transform: translateY(-3px); filter: brightness(1.2); }
+        .btn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 2px 0 #1c5980; }
+
+        .gender-card { 
+            background: rgba(255,255,255,0.1); border: 5px solid transparent; border-radius: 25px; 
+            padding: 20px; cursor: pointer; transition: all 0.3s; width: 180px;
+        }
+        .gender-card.selected { border-color: #FFD700; background: rgba(255,215,0,0.3); transform: translateY(-10px); }
+        .gender-card svg { width: 100px; height: 180px; }
+
+        #hud { position: absolute; top: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; pointer-events: none; z-index: 5; }
+        .hud-item { background: rgba(0,0,0,0.7); padding: 10px 15px; border-radius: 12px; color: white; font-family: 'Fredoka One', cursive; border: 2px solid #FFD700; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+
+        .grid-levels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; max-height: 60vh; overflow-y: auto; padding: 20px; width: 100%; max-width: 700px; }
+        .level-node { 
+            position: relative; height: 100px; border-radius: 15px; cursor: pointer; 
+            overflow: hidden; border: 3px solid rgba(255,255,255,0.3); display: flex; 
+            flex-direction: column; justify-content: center; align-items: center; 
+            transition: 0.3s; background-size: cover; background-position: center;
+        }
+        .level-node::before { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,0.4); z-index: 1; }
+        .level-node * { z-index: 2; position: relative; }
+        .level-node.locked { opacity: 0.4; cursor: not-allowed; filter: grayscale(1); }
+        .level-node.unlocked:hover { transform: scale(1.05); border-color: #FFD700; }
+
+        #mobile-controls { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: space-between; padding: 0 40px; z-index: 5; }
+        .touch-btn { width: 80px; height: 80px; background: rgba(255, 255, 255, 0.15); border: 3px solid white; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 32px; color: white; backdrop-filter: blur(5px); }
+
+        .gain-life { animation: pulse-green 1s; }
+        @keyframes pulse-green {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); background-color: #10b981; }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="hud" class="hidden">
+        <div class="flex gap-4">
+            <div class="hud-item" id="hud-name">---</div>
+            <div class="hud-item" id="hud-lives">❤️ 3</div>
+            <div class="hud-item" id="hud-coins">🪙 0</div>
+        </div>
+        <div class="hud-item" id="hud-level">Nivel 1</div>
+    </div>
+
+    <div id="start-screen" class="overlay">
+        <h1>Aventura del Saber</h1>
+        <p class="text-xl mb-6 italic opacity-80">¡Aprende jugando en este viaje épico!</p>
+        <button class="btn text-2xl" onclick="initAudioAndGo()">¡COMENZAR AVENTURA! 🚀</button>
+    </div>
+
+    <div id="char-creator" class="overlay hidden">
+        <h1>Tu Aventurero</h1>
+        <input type="text" id="input-name" placeholder="Tu nombre..." maxlength="10" class="bg-white text-gray-800 p-4 rounded-2xl mb-8 text-center font-bold text-xl ring-4 ring-blue-500 outline-none">
+        
+        <div class="flex gap-10 mb-10">
+            <div id="card-boy" class="gender-card selected" onclick="selectGender('boy')">
+                <svg viewBox="0 0 100 180">
+                    <circle cx="50" cy="25" r="20" fill="#ffdbac"/>
+                    <path d="M50 5C35 5 25 15 25 25H75C75 15 65 5 50 5Z" fill="#4B2C20"/>
+                    <rect x="35" y="45" width="30" height="60" rx="8" fill="#3b82f6"/>
+                    <rect x="25" y="50" width="10" height="45" rx="5" fill="#ffdbac"/>
+                    <rect x="65" y="50" width="10" height="45" rx="5" fill="#ffdbac"/>
+                    <rect x="35" y="105" width="12" height="60" rx="4" fill="#1e3a8a"/>
+                    <rect x="53" y="105" width="12" height="60" rx="4" fill="#1e3a8a"/>
+                    <rect x="32" y="165" width="18" height="10" rx="3" fill="#333"/>
+                    <rect x="50" y="165" width="18" height="10" rx="3" fill="#333"/>
+                </svg>
+                <p class="mt-4 font-bold text-xl">NIÑO</p>
+            </div>
+            <div id="card-girl" class="gender-card" onclick="selectGender('girl')">
+                <svg viewBox="0 0 100 180">
+                    <circle cx="50" cy="25" r="20" fill="#ffdbac"/>
+                    <path d="M20 15C20 5 80 5 80 15C80 35 70 45 50 45C30 45 20 35 20 15Z" fill="#78350f"/>
+                    <path d="M30 45L70 45L85 105H15L30 45Z" fill="#ec4899"/>
+                    <rect x="20" y="50" width="10" height="40" rx="5" fill="#ffdbac"/>
+                    <rect x="70" y="50" width="10" height="40" rx="5" fill="#ffdbac"/>
+                    <rect x="35" y="105" width="12" height="60" rx="4" fill="#ffdbac"/>
+                    <rect x="53" y="105" width="12" height="60" rx="4" fill="#ffdbac"/>
+                    <rect x="32" y="165" width="18" height="10" rx="3" fill="#333"/>
+                    <rect x="50" y="165" width="18" height="10" rx="3" fill="#333"/>
+                </svg>
+                <p class="mt-4 font-bold text-xl">NIÑA</p>
+            </div>
+        </div>
+        <button class="btn" onclick="goToWorldMap()">¡AL MAPA! 🗺️</button>
+    </div>
+
+    <div id="world-map" class="overlay hidden">
+        <h1>Mundos de Sabiduría</h1>
+        <div class="grid-levels" id="levels-grid"></div>
+        <button class="btn bg-gray-600 mt-6" onclick="location.reload()">Regresar</button>
+    </div>
+
+    <div id="quiz-overlay" class="overlay hidden">
+        <div class="bg-white text-gray-800 p-8 rounded-3xl max-w-md w-full shadow-2xl border-b-8 border-yellow-500">
+            <div id="quiz-progress" class="text-yellow-600 font-black mb-2 text-xl italic uppercase">Desafío Mental</div>
+            <p id="question-text" class="text-xl font-bold mb-6 text-gray-700 leading-tight"></p>
+            <div id="options-container" class="flex flex-col gap-3"></div>
+            <div id="quiz-feedback" class="mt-6 p-4 rounded-xl hidden font-bold text-center"></div>
+            <button id="btn-next-q" class="btn w-full mt-4 hidden">Siguiente</button>
+        </div>
+    </div>
+
+    <div id="victory-screen" class="overlay hidden">
+        <h1 class="text-green-400">¡Nivel Completado!</h1>
+        <p id="victory-rating" class="text-4xl font-bold mb-4 text-yellow-300"></p>
+        <p id="victory-msg" class="mb-8 text-xl opacity-90"></p>
+        <div class="flex gap-4">
+            <button class="btn bg-green-600" onclick="nextLevel()">Siguiente Nivel</button>
+            <button class="btn bg-blue-600" onclick="goToWorldMap()">Mapa</button>
+        </div>
+    </div>
+
+    <div id="game-over-screen" class="overlay hidden">
+        <h1 class="text-red-500">¡FIN DEL JUEGO!</h1>
+        <p class="mb-6 text-xl">Has perdido todas tus vidas y monedas acumuladas.</p>
+        <button class="btn" onclick="restartEntireGame()">Empezar de Cero</button>
+    </div>
+
+    <div id="mobile-controls" class="hidden">
+        <div class="flex gap-6">
+            <div class="touch-btn" id="btn-left">⬅️</div>
+            <div class="touch-btn" id="btn-right">➡️</div>
+        </div>
+        <div class="touch-btn" id="btn-jump">⬆️</div>
+    </div>
+</div>
+
+<script>
+// --- AUDIO ENGINE ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let musicGain = null;
+let melodyInterval = null;
+let currentMusicMode = 'ADVENTURE'; 
+
+function initAudioAndGo() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    musicGain = audioCtx.createGain();
+    musicGain.connect(audioCtx.destination);
+    musicGain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    
+    startSequentialMusic();
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('char-creator').classList.remove('hidden');
+}
+
+function startSequentialMusic() {
+    if(melodyInterval) clearInterval(melodyInterval);
+    const scales = {
+        ADVENTURE: [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25],
+        QUIZ: [261.63, 277.18, 311.13, 349.23, 369.99, 415.30, 466.16]
+    };
+
+    let step = 0;
+    melodyInterval = setInterval(() => {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        const currentScale = scales[currentMusicMode];
+        
+        let freq;
+        if (currentMusicMode === 'ADVENTURE') {
+            const pattern = [0, 2, 4, 7, 4, 2, 0, -1];
+            const noteIdx = pattern[step % 8];
+            freq = noteIdx === -1 ? 0 : currentScale[noteIdx];
+            osc.type = 'triangle';
+        } else {
+            freq = currentScale[step % 4] * 0.5;
+            osc.type = 'sine';
+        }
+
+        if (freq > 0) {
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            g.gain.setValueAtTime(currentMusicMode === 'ADVENTURE' ? 0.05 : 0.03, audioCtx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+            osc.connect(g); g.connect(musicGain);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+        }
+        step++;
+    }, 250);
+}
+
+function playCorrectSound() {
+    const now = audioCtx.currentTime;
+    [523, 659, 783, 1046].forEach((f, i) => {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f, now + i*0.08);
+        g.gain.setValueAtTime(0.1, now + i*0.08);
+        g.gain.exponentialRampToValueAtTime(0.01, now + i*0.08 + 0.3);
+        osc.connect(g); g.connect(audioCtx.destination);
+        osc.start(now + i*0.08); osc.stop(now + i*0.08 + 0.3);
+    });
+}
+
+function playWrongSound() {
+    const now = audioCtx.currentTime;
+    [300, 250, 200, 150].forEach((f, i) => {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(f, now + i*0.1);
+        g.gain.setValueAtTime(0.12, now + i*0.1);
+        g.gain.exponentialRampToValueAtTime(0.01, now + i*0.1 + 0.4);
+        osc.connect(g); g.connect(audioCtx.destination);
+        osc.start(now + i*0.1); osc.stop(now + i*0.1 + 0.4);
+    });
+}
+
+function playSFX(freq, type, duration, volume = 0.2) {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    g.gain.setValueAtTime(volume, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+
+// --- DATA ---
+const LEVEL_DATA = [
+    { name: "Praderas Verdes", color: "#22c55e", bg: "https://images.unsplash.com/photo-1500382017468-9049fee74a52?auto=format&fit=crop&w=400&q=80" },
+    { name: "Bosque Místico", color: "#065f46", bg: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=400&q=80" },
+    { name: "Picos Helados", color: "#60a5fa", bg: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=400&q=80" },
+    { name: "Desierto Dorado", color: "#eab308", bg: "https://images.unsplash.com/photo-1473580044384-7ba9967e16a0?auto=format&fit=crop&w=400&q=80" },
+    { name: "Cueva de Cristal", color: "#8b5cf6", bg: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=400&q=80" },
+    { name: "Abismo Oceánico", color: "#1d4ed8", bg: "https://images.unsplash.com/photo-1437622368342-7a3d73a34c8f?auto=format&fit=crop&w=400&q=80" },
+    { name: "Isla Volante", color: "#38bdf8", bg: "https://images.unsplash.com/photo-1475139462821-0b3b8788b739?auto=format&fit=crop&w=400&q=80" },
+    { name: "Orbita Galáctica", color: "#1e1b4b", bg: "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?auto=format&fit=crop&w=400&q=80" },
+    { name: "Metrópolis Neon", color: "#d946ef", bg: "https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=400&q=80" },
+    { name: "Jungla Ancestral", color: "#166534", bg: "https://images.unsplash.com/photo-1440613905118-99b921706b5c?auto=format&fit=crop&w=400&q=80" },
+    { name: "Castillo Sombrío", color: "#450a0a", bg: "https://images.unsplash.com/photo-1533154683836-84ea7a0bc310?auto=format&fit=crop&w=400&q=80" },
+    { name: "Templo del Saber", color: "#fbbf24", bg: "https://images.unsplash.com/photo-1516192518150-4d824d5ad355?auto=format&fit=crop&w=400&q=80" }
+];
+
+const QUESTIONS = {
+    ciencia: [
+        { q: "¿Cuál es el planeta más cercano al Sol?", a: ["Mercurio", "Tierra", "Marte"], c: 0 },
+        { q: "¿Qué gas respiran las plantas?", a: ["Dióxido de Carbono", "Oxígeno", "Nitrógeno"], c: 0 },
+        { q: "¿De qué están hechos los huesos?", a: ["Calcio", "Hierro", "Madera"], c: 0 },
+        { q: "¿Qué animal pone huevos?", a: ["Ornitorrinco", "Perro", "Ballena"], c: 0 },
+        { q: "¿Cuál es el órgano que bombea sangre?", a: ["Corazón", "Pulmón", "Cerebro"], c: 0 }
+    ],
+    general: [
+        { q: "¿Cuántos días tiene un año bisiesto?", a: ["365", "366", "364"], c: 1 },
+        { q: "¿Qué continente es una isla gigante?", a: ["África", "Australia", "Europa"], c: 1 },
+        { q: "¿Qué animal es un mamífero acuático?", a: ["Tiburón", "Ballena", "Tortuga"], c: 1 },
+        { q: "¿Color de la esmeralda?", a: ["Azul", "Rojo", "Verde"], c: 2 },
+        { q: "¿Cuántos segundos tiene un minuto?", a: ["30", "60", "120"], c: 1 }
+    ],
+    musica: [
+        { q: "¿Cuál es el instrumento de percusión?", a: ["Tambor", "Violín", "Trompeta"], c: 0 },
+        { q: "¿Cuántas notas tiene la escala natural?", a: ["5", "7", "12"], c: 1 },
+        { q: "¿Cuál es el instrumento más grande?", a: ["Contrabajo", "Violonchelo", "Viola"], c: 0 },
+        { q: "¿Qué instrumento tiene teclas?", a: ["Piano", "Flauta", "Guitarra"], c: 0 },
+        { q: "¿Quién compuso la 9na Sinfonía?", a: ["Beethoven", "Mozart", "Bach"], c: 0 }
+    ],
+    historia: [
+        { q: "¿Quién pintó la Capilla Sixtina?", a: ["Da Vinci", "Miguel Ángel", "Rafael"], c: 1 },
+        { q: "¿Cómo se llamaba el barco de Colón?", a: ["Santa María", "Titán", "Vikingo"], c: 0 },
+        { q: "¿En qué país se inventó la pizza?", a: ["España", "Francia", "Italia"], c: 2 },
+        { q: "¿En qué país están las pirámides?", a: ["México", "Egipto", "China"], c: 1 },
+        { q: "¿Quién descubrió América?", a: ["Cristóbal Colón", "Magallanes", "Marco Polo"], c: 0 }
+    ]
+};
+
+let gameState = {
+    screen: 'START', playerName: '', gender: 'boy',
+    currentLevelIdx: 0, coins: 0, lives: 3, 
+    cameraX: 0, totalAnswers: 0, correctAnswers: 0, invuln: 0,
+    currentLevelQuestions: []
+};
+
+const WORLD_LEVELS = LEVEL_DATA.map((d, i) => ({
+    ...d, id: i + 1, category: ['general', 'ciencia', 'musica', 'historia'][i % 4], unlocked: i === 0
+}));
+
+// --- ENGINE ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let width, height;
+let player = { x: 100, y: 100, w: 40, h: 80, vx: 0, vy: 0, grounded: false };
+let platforms = [], hazards = [], coins = [], scenery = [];
+let goal = { x: 0, y: 0, w: 80, h: 120 };
+const keys = {}, touch = { left: false, right: false, jump: false };
+
+window.onresize = () => { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; };
+window.onresize();
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+function setupTouch(id, key) {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.onpointerdown = (e) => { e.preventDefault(); touch[key] = true; };
+    el.onpointerup = (e) => { e.preventDefault(); touch[key] = false; };
+}
+setupTouch('btn-left', 'left'); setupTouch('btn-right', 'right'); setupTouch('btn-jump', 'jump');
+
+function selectGender(g) {
+    gameState.gender = g;
+    document.getElementById('card-boy').classList.toggle('selected', g === 'boy');
+    document.getElementById('card-girl').classList.toggle('selected', g === 'girl');
+}
+
+function goToWorldMap() {
+    gameState.playerName = document.getElementById('input-name').value || "Explorador";
+    gameState.screen = 'MAP';
+    document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+    document.getElementById('world-map').classList.remove('hidden');
+    renderLevels();
+}
+
+function renderLevels() {
+    const grid = document.getElementById('levels-grid');
+    grid.innerHTML = "";
+    WORLD_LEVELS.forEach((lvl, i) => {
+        const div = document.createElement('div');
+        div.className = `level-node ${lvl.unlocked ? 'unlocked' : 'locked'}`;
+        div.style.backgroundImage = `url('${lvl.bg}')`;
+        div.innerHTML = `
+            <div class="text-3xl font-black text-white">${lvl.id}</div>
+            <div class="text-[11px] font-bold text-yellow-300 uppercase tracking-widest">${lvl.unlocked ? lvl.name : 'Bloqueado'}</div>
+        `;
+        if(lvl.unlocked) div.onclick = () => startLevel(i);
+        grid.appendChild(div);
+    });
+}
+
+function startLevel(idx) {
+    gameState.currentLevelIdx = idx;
+    gameState.screen = 'PLAYING';
+    currentMusicMode = 'ADVENTURE';
+    document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('mobile-controls').classList.toggle('hidden', window.innerWidth > 1024);
+    initLevel();
+    requestAnimationFrame(loop);
+}
+
+function restartEntireGame() {
+    gameState.lives = 3;
+    gameState.coins = 0;
+    WORLD_LEVELS.forEach((l, i) => l.unlocked = i === 0);
+    goToWorldMap();
+}
+
+function initLevel() {
+    player.x = 150; player.y = 100; player.vx = 0; player.vy = 0;
+    gameState.cameraX = 0;
+    platforms = []; hazards = []; coins = []; scenery = [];
+    
+    for(let i=0; i<30; i++) {
+        scenery.push({ x: i * 450, y: height - 100 - Math.random()*250, type: Math.random() > 0.5 ? 'cloud' : 'decor', scale: 0.8 + Math.random() });
+    }
+
+    let cx = 0, cy = height - 150;
+    platforms.push({ x: 0, y: cy, w: 500, h: 600 });
+    cx = 550;
+
+    for(let i=0; i<15; i++) {
+        let w = 220 + Math.random()*180;
+        cy += (Math.random()-0.5)*140;
+        cy = Math.max(height*0.3, Math.min(height-130, cy));
+        platforms.push({ x: cx, y: cy, w: w, h: 900 });
+        if(Math.random() > 0.15) coins.push({ x: cx + w/2 - 15, y: cy - 60, w: 30, h: 30, collected: false });
+        if(Math.random() > 0.45) hazards.push({ x: cx + 50 + Math.random()*(w-100), y: cy - 60, w: 40, h: 60 });
+        cx += w + 110 + Math.random()*70;
+    }
+    platforms.push({ x: cx, y: cy, w: 600, h: 900 });
+    goal.x = cx + 300; goal.y = cy - 120;
+    updateHUD();
+}
+
+function updateHUD() {
+    document.getElementById('hud-name').innerText = gameState.playerName;
+    document.getElementById('hud-lives').innerText = `❤️ ${gameState.lives}`;
+    document.getElementById('hud-coins').innerText = `🪙 ${gameState.coins}`;
+    document.getElementById('hud-level').innerText = WORLD_LEVELS[gameState.currentLevelIdx].name;
+}
+
+function loop() {
+    if(gameState.screen === 'PLAYING') { update(); draw(); requestAnimationFrame(loop); }
+}
+
+function update() {
+    if(keys['ArrowRight'] || keys['KeyD'] || touch.right) player.vx += 1.1;
+    if(keys['ArrowLeft'] || keys['KeyA'] || touch.left) player.vx -= 1.1;
+    if((keys['Space'] || keys['ArrowUp'] || touch.jump) && player.grounded) { 
+        player.vy = -18; player.grounded = false; 
+        playSFX(650, 'square', 0.15); 
+    }
+
+    player.vx *= 0.88; player.vy += 0.85;
+    player.x += player.vx; player.y += player.vy;
+    player.grounded = false;
+    if(gameState.invuln > 0) gameState.invuln--;
+
+    platforms.forEach(p => {
+        if(player.x < p.x + p.w && player.x + player.w > p.x && player.y + player.h > p.y && player.y + player.h < p.y + 40 && player.vy >= 0) {
+            player.y = p.y - player.h; player.vy = 0; player.grounded = true;
+        }
+    });
+
+    hazards.forEach(h => {
+        if(gameState.invuln === 0 && player.x < h.x + h.w && player.x + player.w > h.x && player.y + player.h > h.y && player.y < h.y + h.h) {
+            hitHazard();
+        }
+    });
+
+    coins.forEach(c => {
+        if(!c.collected && player.x < c.x + c.w && player.x + player.w > c.x && player.y < c.y + c.h && player.y + player.h > c.y) {
+            c.collected = true; 
+            gameState.coins++; 
+            if (gameState.coins % 10 === 0) {
+                gameState.lives++;
+                playSFX(1500, 'square', 0.5, 0.1);
+                const hudLife = document.getElementById('hud-lives');
+                hudLife.classList.add('gain-life');
+                setTimeout(() => hudLife.classList.remove('gain-life'), 1000);
+            }
+            updateHUD(); 
+            playSFX(1300, 'sine', 0.1, 0.04);
+        }
+    });
+
+    if(player.y > height) hitHazard(true);
+    if(player.x < goal.x + goal.w && player.x + player.w > goal.x && player.y < goal.y + goal.h && player.y + player.h > goal.y) {
+        startQuiz();
+    }
+
+    let targetCam = player.x - width/3;
+    gameState.cameraX += (targetCam - gameState.cameraX) * 0.1;
+}
+
+function hitHazard(fall = false) {
+    gameState.lives--;
+    updateHUD();
+    playSFX(90, 'sawtooth', 0.6);
+    if(gameState.lives <= 0) {
+        gameState.screen = 'GAMEOVER';
+        document.getElementById('game-over-screen').classList.remove('hidden');
+    } else {
+        if(fall) { player.x -= 300; player.y = height - 500; player.vy = 0; }
+        else { player.vx = player.vx > 0 ? -16 : 16; player.vy = -12; }
+        gameState.invuln = 90;
+    }
+}
+
+function draw() {
+    const level = WORLD_LEVELS[gameState.currentLevelIdx];
+    ctx.fillStyle = level.color + "22"; 
+    ctx.fillRect(0,0,width,height);
+    const grad = ctx.createLinearGradient(0,0,0,height);
+    grad.addColorStop(0, "#0f172a");
+    grad.addColorStop(1, level.color);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,width,height);
+
+    ctx.save(); ctx.translate(-gameState.cameraX, 0);
+
+    scenery.forEach(s => {
+        ctx.fillStyle = level.color + "44";
+        if(s.type === 'cloud') {
+            ctx.beginPath(); ctx.arc(s.x + gameState.cameraX*0.7, s.y, 60*s.scale, 0, Math.PI*2); ctx.fill();
+        } else {
+            ctx.beginPath(); ctx.moveTo(s.x + gameState.cameraX*0.5, height); ctx.lineTo(s.x + 90*s.scale + gameState.cameraX*0.5, height - 280*s.scale); ctx.lineTo(s.x + 180*s.scale + gameState.cameraX*0.5, height); ctx.fill();
+        }
+    });
+
+    platforms.forEach(p => {
+        ctx.fillStyle = "#1e293b"; ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = "#FFD700"; ctx.fillRect(p.x, p.y, p.w, 18);
+        ctx.fillStyle = level.color; ctx.fillRect(p.x, p.y + 18, p.w, 6);
+    });
+
+    coins.forEach(c => { 
+        if(!c.collected) {
+            ctx.fillStyle = "#fbbf24"; ctx.beginPath(); ctx.arc(c.x + 15, c.y + 15, 15, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = "#b45309"; ctx.lineWidth = 3; ctx.stroke();
+            ctx.fillStyle = "#b45309"; ctx.font = "bold 18px Arial"; ctx.fillText("$", c.x + 9, c.y + 22);
+        }
+    });
+
+    hazards.forEach(h => {
+        ctx.fillStyle = "#16a34a"; 
+        ctx.fillRect(h.x + 10, h.y + 10, h.w - 20, h.h - 10);
+        ctx.fillRect(h.x, h.y + 25, 10, 15); ctx.fillRect(h.x, h.y + 20, 5, 5);
+        ctx.fillRect(h.x + h.w - 10, h.y + 15, 10, 15); ctx.fillRect(h.x + h.w - 5, h.y + 10, 5, 5);
+        ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 2;
+        for(let i=0; i<5; i++) {
+            ctx.beginPath(); ctx.moveTo(h.x+15, h.y+15+i*8); ctx.lineTo(h.x+18, h.y+15+i*8); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(h.x+25, h.y+20+i*8); ctx.lineTo(h.x+22, h.y+20+i*8); ctx.stroke();
+        }
+    });
+
+    ctx.fillStyle = "#facc15"; ctx.fillRect(goal.x, goal.y, goal.w, goal.h);
+    ctx.fillStyle = "black"; ctx.font = "40px Arial"; ctx.fillText("🏆", goal.x + 15, goal.y + 75);
+
+    if(gameState.invuln % 10 < 5) {
+        const px = player.x, py = player.y, pw = player.w, ph = player.h;
+        ctx.fillStyle = "#ffdbac"; ctx.beginPath(); ctx.arc(px + pw/2, py + 15, 15, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = gameState.gender === 'boy' ? "#4B2C20" : "#78350f";
+        if(gameState.gender === 'boy') ctx.fillRect(px + 8, py, pw - 16, 10);
+        else { ctx.beginPath(); ctx.arc(px + pw/2, py + 10, 18, Math.PI, 0); ctx.fill(); }
+        ctx.fillStyle = gameState.gender === 'boy' ? "#3b82f6" : "#ec4899";
+        ctx.fillRect(px + 5, py + 30, pw - 10, 30);
+        ctx.fillStyle = "#ffdbac"; ctx.fillRect(px - 5, py + 35, 10, 25); ctx.fillRect(px + pw - 5, py + 35, 10, 25);
+        ctx.fillStyle = gameState.gender === 'boy' ? "#1e3a8a" : "#ffdbac";
+        ctx.fillRect(px + 8, py + 60, 10, 20); ctx.fillRect(px + pw - 18, py + 60, 10, 20);
+        ctx.fillStyle = "#333"; ctx.fillRect(px + 6, py + 75, 14, 6); ctx.fillRect(px + pw - 20, py + 75, 14, 6);
+    }
+    ctx.restore();
+}
+
+// --- TRIVIA ENGINE ---
+function startQuiz() {
+    gameState.screen = 'QUIZ';
+    currentMusicMode = 'QUIZ';
+    gameState.currentQuizStep = 1;
+    gameState.levelCorrectCount = 0;
+    const cat = WORLD_LEVELS[gameState.currentLevelIdx].category;
+    const pool = [...QUESTIONS[cat]];
+    gameState.currentLevelQuestions = pool.sort(() => Math.random() - 0.5).slice(0, 3);
+    document.getElementById('quiz-overlay').classList.remove('hidden');
+    showQuestion();
+}
+
+function showQuestion() {
+    const q = gameState.currentLevelQuestions[gameState.currentQuizStep - 1];
+    document.getElementById('question-text').innerText = q.q;
+    document.getElementById('quiz-feedback').classList.add('hidden');
+    document.getElementById('btn-next-q').classList.add('hidden');
+    const cont = document.getElementById('options-container');
+    cont.innerHTML = "";
+    q.a.forEach((opt, i) => {
+        const b = document.createElement('button');
+        b.className = "w-full p-5 bg-yellow-50 border-2 border-yellow-200 rounded-2xl text-left font-bold text-gray-800 hover:border-yellow-500 hover:bg-yellow-100 transition-all";
+        b.innerText = opt;
+        b.onclick = () => { if(document.getElementById('btn-next-q').classList.contains('hidden')) checkAnswer(i, q.c, q.a[q.c]); };
+        cont.appendChild(b);
+    });
+}
+
+function checkAnswer(selected, correct, correctText) {
+    gameState.totalAnswers++;
+    const feedback = document.getElementById('quiz-feedback');
+    feedback.classList.remove('hidden');
+    if(selected === correct) {
+        gameState.correctAnswers++;
+        gameState.levelCorrectCount++;
+        feedback.className = "mt-6 p-4 rounded-xl font-bold bg-green-100 text-green-700 border-2 border-green-300";
+        feedback.innerText = "¡RESPUESTA CORRECTA! 🌟";
+        playCorrectSound();
+    } else {
+        feedback.className = "mt-6 p-4 rounded-xl font-bold bg-red-100 text-red-700 border-2 border-red-300";
+        feedback.innerText = `Incorrecto. La respuesta era: ${correctText}`;
+        playWrongSound();
+    }
+    const nextBtn = document.getElementById('btn-next-q');
+    nextBtn.classList.remove('hidden');
+    nextBtn.onclick = () => {
+        if(gameState.currentQuizStep < 3) { gameState.currentQuizStep++; showQuestion(); } 
+        else finishLevel();
+    };
+}
+
+function finishLevel() {
+    gameState.screen = 'VICTORY';
+    currentMusicMode = 'ADVENTURE';
+    document.getElementById('quiz-overlay').classList.add('hidden');
+    document.getElementById('victory-screen').classList.remove('hidden');
+    let rating = gameState.levelCorrectCount === 3 ? "¡MAESTRÍA!" : (gameState.levelCorrectCount === 2 ? "¡GENIAL!" : "¡BIEN!");
+    document.getElementById('victory-rating').innerText = rating;
+    document.getElementById('victory-msg').innerText = `Terminaste ${WORLD_LEVELS[gameState.currentLevelIdx].name} con éxito.`;
+    if(gameState.currentLevelIdx + 1 < WORLD_LEVELS.length) WORLD_LEVELS[gameState.currentLevelIdx + 1].unlocked = true;
+}
+
+function nextLevel() {
+    if(gameState.currentLevelIdx + 1 < WORLD_LEVELS.length) startLevel(gameState.currentLevelIdx + 1);
+    else goToWorldMap();
+}
+
+// --- PWA SERVICE WORKER REGISTRATION ---
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => console.log('SW registrado correctamente'))
+      .catch(err => console.log('Error al registrar SW', err));
+  });
+}
+</script>
+</body>
+</html>
